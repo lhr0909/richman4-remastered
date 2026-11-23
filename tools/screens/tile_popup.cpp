@@ -4,6 +4,7 @@
 
 #include "messages.hpp"
 #include "rich4/economy.hpp"
+#include "rich4/services.hpp"
 
 #include <array>
 #include <cstdlib>
@@ -174,8 +175,9 @@ std::vector<Line> lines(const World &world, std::uint16_t code) {
             result.push_back({36, std::string(grades[level])});
             if (type != 4) // hotel / mall: ×(facility +0x24[level] · price index)
                 result.push_back({54, times(std::int64_t(facility.toll_by_level[level]) * price_index)});
-            // Research institute: the original adds the produced tool's name when facility +0x1e
-            // is set (+0x1d, not decoded by World), so that line is omitted.
+            else if (facility.research_days() && facility.research_tool >= 1 && facility.research_tool <= 5)
+                // Research institute (0x417ac2..0x417adf): show developing tool name when +0x1e != 0.
+                result.push_back({54, std::string(services::tool_names[facility.research_tool + 7U])});
         }
     } else if (code > 6000 && code < 8000) {
         if (std::size_t(code - 6000) >= world.commercials.size())

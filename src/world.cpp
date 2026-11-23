@@ -310,6 +310,7 @@ World World::from_save(const SaveFile &save) {
         facility.level = bytes[offset + 26];
         facility.direction = bytes[offset + 27];
         facility.temporary_state = bytes[offset + 28];
+        facility.research_tool = bytes[offset + 29];
         facility.flags_30 = bytes[offset + 30];
         facility.land_price = u16(bytes, offset + 34);
         for (std::size_t i = 0; i < 6; ++i)
@@ -551,8 +552,9 @@ std::vector<std::uint8_t> World::export_save() const {
         bytes[offset + 26] = facility.level;
         bytes[offset + 27] = facility.direction;
         bytes[offset + 28] = facility.temporary_state;
-        put16(bytes, offset + 34, facility.land_price);
+        bytes[offset + 29] = facility.research_tool;
         bytes[offset + 30] = facility.flags_30;
+        put16(bytes, offset + 34, facility.land_price);
         for (std::size_t i = 0; i < 6; ++i)
             put16(bytes, offset + 36 + 2 * i, facility.toll_by_level[i]);
         put32(bytes, offset + 48, facility.removed_building);

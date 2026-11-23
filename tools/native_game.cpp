@@ -125,9 +125,24 @@ Options arguments(int argc, char **argv) {
     options.font = platform.font;
     options.save_directory = platform.save_directory;
     options.touch = true;
+#else
+    const auto has_game_assets = [](const fs::path &dir) {
+        std::error_code ec;
+        return fs::is_regular_file(dir / "Data.mkf", ec) || fs::is_regular_file(dir / "data.mkf", ec);
+    };
+    if (const char *base = SDL_GetBasePath()) {
+        if (const auto bundled = fs::path(base) / "game-assets"; has_game_assets(bundled))
+            options.assets = bundled;
+    }
+    if (!has_game_assets(options.assets)) {
+        if (const auto shared = home / "Library/Application Support/Rich4Native/assets"; has_game_assets(shared))
+            options.assets = shared;
+    }
 #endif
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
+        if (argument.starts_with("-psn_")) // macOS Finder LaunchServices process serial number
+            continue;
         if (argument == "--headless")
             options.headless = true;
         else if (argument == "--hidden-window")
@@ -211,7 +226,11 @@ Options arguments(int argc, char **argv) {
             fs::path("/Applications/Microsoft Word.app/Contents/Resources/DFonts/mingliu.ttc"),
             home / "Library/Containers/org.boxedwine/Data/Library/Application "
                    "Support/Boxedwine/Rich4/root/home/username/.wine/drive_c/windows/Fonts/mingliu.ttc",
-            fs::path("/System/Library/Fonts/PingFang.ttc")};
+            fs::path("/System/Library/Fonts/PingFang.ttc"),
+            fs::path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+            fs::path("/System/Library/Fonts/STHeiti Medium.ttc"),
+            fs::path("/System/Library/Fonts/STHeiti Light.ttc"),
+            fs::path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf")};
         for (const auto &path : candidates)
             if (fs::is_regular_file(path)) {
                 options.font = path;
@@ -514,6 +533,9 @@ class Application {
                             if (map_decision()) {
                                 if (selected_target_)
                                     respond(*selected_target_);
+                            } else if (facility_ui::handles(*session_->pending_decision())) {
+                                if (const auto option = facility_picker_.selected_option(*session_->pending_decision()))
+                                    respond(*option);
                             } else
                                 respond(0);
                         }
@@ -2912,6 +2934,7 @@ class Application {
         auto absent = event(Announcement::absent_status, 2);
         absent.value = 3;
         shoot("box-prison", messages::from_event(absent, world));
+        shoot("box-research-complete", messages::from_event(event(Announcement::research_complete, 13), world));
         for (const std::uint8_t id : {1, 5, 11, 29, 33}) {
             auto news = event(Announcement::news, id);
             news.property = static_cast<std::uint16_t>(2000 + land);
@@ -2981,18 +3004,23 @@ class Application {
         base();
         draw_choice_dialog(messages::localized(frame_card, world));
         save("frame-card-several");
-        { // FACILITY: build (no cancel) and 改建卡 (with 取消), idle and with a slot selected
+        { // FACILITY: build (no cancel), 改建卡 (with 取消), and 研究所 tool picker (level 3: 3 unlocked, 2 locked)
             const GameDecision build{DecisionKind::construct_facility, slot, 1, 0, "請選擇設施類別",
                                      {{"公園", 0}, {"旅館", 1}, {"百貨公司", 2}, {"加油站", 3}, {"研究所", 4}}};
             const GameDecision rebuild{DecisionKind::action_target, slot, 0, 0, "請選擇設施類別",
                                        {{"公園", 0}, {"旅館", 1}, {"百貨公司", 2}, {"加油站", 3}, {"研究所", 4},
                                         {"取消", -1}}};
+            const GameDecision research{DecisionKind::research_tool, slot, 1, 3, "請選擇欲開發道具",
+                                        {{"機器工人", 1}, {"時光機", 2}, {"傳送機", 3}, {"取消", -1}}};
             auto host = make_host();
             for (const auto &[name, decision, selected] :
                  {std::tuple{"facility-type", &build, std::optional<int>{}},
                   std::tuple{"facility-type-selected", &build, std::optional<int>{2}},
                   std::tuple{"facility-rebuild", &rebuild, std::optional<int>{}},
-                  std::tuple{"facility-rebuild-selected", &rebuild, std::optional<int>{0}}}) {
+                  std::tuple{"facility-rebuild-selected", &rebuild, std::optional<int>{0}},
+                  std::tuple{"research", &research, std::optional<int>{}},
+                  std::tuple{"research-selected", &research, std::optional<int>{2}},
+                  std::tuple{"research-locked", &research, std::optional<int>{4}}}) {
                 base();
                 facility_picker_.select(selected, name);
                 facility_picker_.draw(host, *decision, name, [](std::size_t) {});
@@ -3076,6 +3104,13 @@ class Application {
         for (std::size_t i = 1; i < shown.facilities.size(); ++i)
             if (visible(shown.facilities[i].x, shown.facilities[i].y)) {
                 shoot_popup("facility", shown, static_cast<std::uint16_t>(4000 + i), 0);
+                auto &inst = shown.facilities[i];
+                inst.owner_code = 1;
+                inst.facility_type = 4;
+                inst.level = 3;
+                inst.research_tool = 3;
+                inst.research_days() = 4;
+                shoot_popup("research", shown, static_cast<std::uint16_t>(4000 + i), -20);
                 break;
             }
         for (std::size_t i = 1; i < shown.commercials.size(); ++i)

@@ -223,12 +223,15 @@ void lossless_and_patching() {
     const auto facility = map_offset + u32(input, map_offset + 20) + 56;
     world.facilities[1].toll_by_level[2] = 321;
     put16(expected, facility + 40, 321);
+    world.facilities[1].research_tool = 4;
+    expected[facility + 29] = 4;
     world.facilities[1].flags_30 = 9;
     expected[facility + 30] = 9;
     require(world.export_save() == expected,
             "Mutations change exactly their documented bytes, no snapshot or padding drift");
     auto loaded = World::from_save(SaveFile::decode(expected));
-    require(loaded.active_player().state.cash == -123 && loaded.lands[1].economy.owner_code == 2,
+    require(loaded.active_player().state.cash == -123 && loaded.lands[1].economy.owner_code == 2 &&
+                loaded.facilities[1].research_tool == 4 && loaded.facilities[1].research_days() == 9,
             "Edited runtime state survives original-format reload");
     require(loaded.offers[3][6] == world.offers[3][6], "All twelve listing bytes survive reload");
     world.lands[1].economy.street_name = "new";

@@ -138,7 +138,14 @@ struct Facility {
     std::uint8_t level = 0;
     std::uint8_t direction = 0;
     std::uint8_t temporary_state = 0;
-    std::uint8_t flags_30 = 0; // Original facility byte +0x1e, cleared by sealing card.
+    std::uint8_t research_tool = 0; // Original facility byte +0x1d: 1..5 (tools 9..13).
+    std::uint8_t flags_30 = 0;      // Original facility byte +0x1e: research turns left (0..5), cleared by sealing card.
+    [[nodiscard]] std::uint8_t research_days() const noexcept {
+        return flags_30;
+    }
+    [[nodiscard]] std::uint8_t &research_days() noexcept {
+        return flags_30;
+    }
     std::uint16_t land_price = 0;
     std::array<std::uint16_t, 6> toll_by_level{};
     [[nodiscard]] std::uint16_t price_per_level() const noexcept {

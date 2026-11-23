@@ -1274,6 +1274,276 @@ void landing_pauses() {
             }) && after.back().kind == rich4::EffectKind::pause && after.back().after_events == events.size(),
             "property landing must hold 8 ticks after the purchase, before the next player");
 }
+// Research Institute (研究所, facility_type 4): construction/landing tool picker (fcn_0044101d),
+// 5-turn countdown & tool award on turn start (fcn_0041c84f), cancel, upgrade, sleepwalk,
+// sealing, downgrade cancellation, confinement ticking, cap at 9, AI/autopilot, and save reload.
+void research_institute() {
+    const auto make_world = [&] {
+        auto value = world();
+        for (auto &node : value.nodes) {
+            node.flags &= ~0xffU;
+            node.type_and_index = 4001;
+        }
+        value.facilities[1].owner_code = 1;
+        value.facilities[1].land_price = 4000;
+        value.facilities[1].toll_by_level = {400, 800, 1600, 3200, 6400, 12800};
+        return value;
+    };
+
+    // 1. Constructing a Research Institute immediately opens the level-1 tool picker (機器工人 + 取消),
+    // and completing 5 owner turns awards tool 9 (機器工人) with Announcement::research_complete.
+    {
+        auto value = make_world();
+        value.players[0].state.tool_amounts[8] = 0; // 機器工人
+        const auto supply_before = value.tool_supply;
+        rich4::GameSession session(value, 0);
+        first_landing(session);
+        require(session.pending_decision() &&
+                    session.pending_decision()->kind == rich4::DecisionKind::construct_facility,
+                "empty owned facility must offer construction");
+        require(session.respond(4), "constructing Research Institute (slot 4) failed");
+        require(session.world().facilities[1].facility_type == 4 && session.world().facilities[1].level == 1,
+                "Research Institute was not built to level 1");
+        require(session.pending_decision() &&
+                    session.pending_decision()->kind == rich4::DecisionKind::research_tool &&
+                    session.pending_decision()->prompt == "請選擇欲開發道具" &&
+                    session.pending_decision()->options.size() == 2 &&
+                    session.pending_decision()->options[0].value == 1 &&
+                    session.pending_decision()->options[1].value == -1,
+                "level-1 Research Institute must offer only 機器工人 (1) and 取消 (-1)");
+        const auto rng_before_pick = session.random_state();
+        require(session.respond(0), "choosing 機器工人 failed");
+        require(session.random_state() == rng_before_pick, "research choice must not draw randomness");
+        require(session.world().facilities[1].research_tool == 1 &&
+                    session.world().facilities[1].research_days() == 5,
+                "research choice must set +0x1d=1 and +0x1e=5");
+
+        // Advance 5 full days so player 0 begins 5 turns; decline further upgrades and cancel picker.
+        const auto start_days = session.completed_days();
+        bool saw_announcement = false;
+        while (session.completed_days() < start_days + 5) {
+            if (session.phase() == rich4::GamePhase::human_ready) {
+                require(session.roll_dice(), "roll failed during research countdown");
+            } else if (const auto &d = session.pending_decision()) {
+                // Decline upgrades (value 0) and cancel research picker (value -1) so we don't reset the timer!
+                std::size_t pick = 0;
+                for (std::size_t i = 0; i < d->options.size(); ++i)
+                    if (d->options[i].value == -1 || d->options[i].value == 0)
+                        pick = i;
+                require(session.respond(pick), "decision during research countdown failed");
+            } else {
+                session.tick(1000);
+            }
+            for (const auto &ev : session.drain_events()) {
+                if (ev.announcement == rich4::Announcement::research_complete) {
+                    require(ev.announcement_id == 9 && ev.property == 4001 && ev.player == 0,
+                            "research completion announcement fields differ");
+                    saw_announcement = true;
+                }
+            }
+        }
+        require(saw_announcement, "research completion announcement did not fire after 5 turns");
+        require(session.world().players[0].state.tool_amounts[8] == 1 &&
+                    session.world().facilities[1].research_days() == 0 &&
+                    session.world().facilities[1].research_tool == 1 &&
+                    session.world().tool_supply == supply_before,
+                "research completion must award tool 9 without touching shared tool supply");
+    }
+
+    // 2. Upgrading a Research Institute unlocks the new level immediately in the picker; cancelling
+    // keeps in-progress research untouched; declining upgrade / level 5 / insufficient cash still open picker.
+    {
+        auto value = make_world();
+        value.facilities[1].facility_type = 4;
+        value.facilities[1].level = 4;
+        value.facilities[1].research_tool = 2;
+        value.facilities[1].research_days() = 3;
+        rich4::GameSession upgrade_game(value, 0);
+        first_landing(upgrade_game);
+        require(upgrade_game.pending_decision()->kind == rich4::DecisionKind::upgrade_facility,
+                "level-4 Research Institute should offer upgrade");
+        require(upgrade_game.respond(0), "accepting upgrade failed"); // upgrades to level 5
+        require(upgrade_game.world().facilities[1].level == 5, "Research Institute did not reach level 5");
+        require(upgrade_game.pending_decision() &&
+                    upgrade_game.pending_decision()->kind == rich4::DecisionKind::research_tool &&
+                    upgrade_game.pending_decision()->options.size() == 6 &&
+                    upgrade_game.pending_decision()->options[4].value == 5,
+                "upgraded level-5 Research Institute must unlock all 5 tools including 核子飛彈 (5)");
+        // Cancel must preserve prior research_tool=2, research_days=3!
+        require(upgrade_game.respond(5), "cancelling research picker failed");
+        require(upgrade_game.world().facilities[1].research_tool == 2 &&
+                    upgrade_game.world().facilities[1].research_days() == 3,
+                "cancelling research picker must preserve existing research state");
+
+        // Declining upgrade still opens the picker at current level (4)!
+        rich4::GameSession decline_game(value, 0);
+        first_landing(decline_game);
+        require(decline_game.respond(1), "declining upgrade failed");
+        require(decline_game.pending_decision() &&
+                    decline_game.pending_decision()->kind == rich4::DecisionKind::research_tool &&
+                    decline_game.pending_decision()->options.size() == 5,
+                "declining upgrade must still open research picker at level 4");
+        require(decline_game.respond(3), "selecting 工程車 (4) failed");
+        require(decline_game.world().facilities[1].research_tool == 4 &&
+                    decline_game.world().facilities[1].research_days() == 5,
+                "selecting new tool must switch research_tool and reset days to 5");
+
+        // Insufficient cash still opens the picker!
+        auto broke = value;
+        broke.players[0].state.cash = 0;
+        rich4::GameSession broke_game(broke, 0);
+        first_landing(broke_game);
+        require(broke_game.pending_decision() &&
+                    broke_game.pending_decision()->kind == rich4::DecisionKind::research_tool,
+                "insufficient cash for upgrade must still open research picker");
+
+        // Level 5 (max level) opens picker directly without upgrade prompt!
+        auto max_lv = value;
+        max_lv.facilities[1].level = 5;
+        rich4::GameSession max_game(max_lv, 0);
+        first_landing(max_game);
+        require(max_game.pending_decision() &&
+                    max_game.pending_decision()->kind == rich4::DecisionKind::research_tool &&
+                    max_game.pending_decision()->options.size() == 6,
+                "level-5 Research Institute must open 5-tool research picker directly");
+        require(max_game.respond(4), "selecting 核子飛彈 (5) failed");
+        require(max_game.world().facilities[1].research_tool == 5 &&
+                    max_game.world().facilities[1].research_days() == 5,
+                "selecting 核子飛彈 must set research_tool=5, research_days=5");
+    }
+
+    // 3. Sleepwalking and sealed (0x51) block the research picker; price-rise (0x50) allows it.
+    {
+        auto value = make_world();
+        value.facilities[1].facility_type = 4;
+        value.facilities[1].level = 3;
+        value.facilities[1].temporary_state = 0x51; // 查封卡
+        rich4::GameSession sealed(value, 0);
+        first_landing(sealed);
+        if (sealed.pending_decision() && sealed.pending_decision()->kind == rich4::DecisionKind::upgrade_facility)
+            require(sealed.respond(1), "decline upgrade on sealed facility failed");
+        require(!sealed.pending_decision() ||
+                    sealed.pending_decision()->kind != rich4::DecisionKind::research_tool,
+                "sealed Research Institute (0x51) must not open research picker");
+
+        value.facilities[1].temporary_state = 0x50; // 漲價卡 (low nibble 0)
+        rich4::GameSession raised(value, 0);
+        first_landing(raised);
+        require(raised.respond(1), "decline upgrade on raised facility failed");
+        require(raised.pending_decision() &&
+                    raised.pending_decision()->kind == rich4::DecisionKind::research_tool,
+                "price-rise (0x50) must still allow research picker");
+
+        value.facilities[1].temporary_state = 0;
+        value.players[0].status.days_sleep_walking = 2;
+        rich4::GameSession sleepwalk(value, 0);
+        until(sleepwalk, [&] { return sleepwalk.world().header.current_player != 0; });
+        require(sleepwalk.world().facilities[1].research_days() == 0,
+                "sleepwalking on own Research Institute must not start research");
+    }
+
+    // 4. Downgrade below research_tool cancels research on turn start; confinement (hospital) STILL ticks;
+    // holding 9 of the tool still announces and caps at 9; save/reload preserves research bytes.
+    {
+        auto value = make_world();
+        value.facilities[1].facility_type = 4;
+        value.facilities[1].level = 2;
+        value.facilities[1].research_tool = 5; // > level 2 -> cancelled on owner's next turn
+        value.facilities[1].research_days() = 1;
+        value.players[0].state.tool_amounts[12] = 0;
+        rich4::GameSession downgraded(value, 0);
+        first_landing(downgraded);
+        require(downgraded.respond(1) && downgraded.respond(2), "decline upgrade and cancel picker");
+        until(downgraded, [&] { return downgraded.completed_days() == 1; });
+        require(downgraded.world().facilities[1].research_days() == 0 &&
+                    downgraded.world().players[0].state.tool_amounts[12] == 0,
+                "downgraded Research Institute (research_tool > level) must cancel without awarding tool");
+
+        // Hospitalized owner still completes research on turn start, capped at 9.
+        auto hosp = make_world();
+        hosp.facilities[1].facility_type = 4;
+        hosp.facilities[1].level = 5;
+        hosp.facilities[1].research_tool = 5;
+        hosp.facilities[1].research_days() = 1;
+        hosp.players[0].state.tool_amounts[12] = 9;
+        hosp.players[0].status.days_in_hospital = 2;
+        hosp.players[0].state.controller_flags = 1;
+        // Start on player 1's turn (computer) so advancing into player 0's turn runs update_status().
+        hosp.header.current_player = 1;
+        rich4::GameSession confined(hosp, 0);
+        bool saw_complete = false;
+        until(confined, [&] {
+            for (const auto &ev : confined.drain_events())
+                if (ev.announcement == rich4::Announcement::research_complete && ev.announcement_id == 13)
+                    saw_complete = true;
+            return confined.completed_days() == 1 && confined.world().header.current_player == 1;
+        });
+        require(saw_complete && confined.world().facilities[1].research_days() == 0 &&
+                    confined.world().players[0].state.tool_amounts[12] == 9,
+                "hospitalized owner must still finish research on turn start and cap tool count at 9");
+    }
+
+    // 5. Computer player (and 託管 human) automatically develops tool `level` for 5 turns and receives it!
+    {
+        auto value = make_world();
+        value.players[0].state.controller_flags = 2; // computer
+        value.players[1].state.controller_flags = 5; // 託管 human so the match stays alive and runs automatically
+        value.facilities[1].facility_type = 4;
+        value.facilities[1].level = 3;
+        value.facilities[1].owner_code = 1;
+        value.players[0].state.cash = 0; // prevent upgrade so level stays 3 -> 傳送機 (tool 11)
+        value.players[0].state.tool_amounts[10] = 0;
+        rich4::GameSession ai_game(value, 0);
+        until(ai_game, [&] { return ai_game.world().header.current_player == 1; });
+        require(ai_game.world().facilities[1].research_tool == 3 &&
+                    ai_game.world().facilities[1].research_days() == 5,
+                "AI landing on level-3 Research Institute must start developing 傳送機 (3) for 5 turns");
+        // Verify save/reload round-trip preserves in-progress research bytes.
+        const auto saved = ai_game.world().export_save();
+        const auto reloaded = rich4::World::from_save(rich4::SaveFile::decode(saved));
+        require(reloaded.facilities[1].research_tool == 3 && reloaded.facilities[1].research_days() == 5,
+                "save/reload must preserve research_tool and research_days");
+        // Prevent re-landing from resetting the 5-turn timer: move road tiles to empty road after first turn.
+        auto finish_world = reloaded;
+        for (auto &node : finish_world.nodes)
+            node.type_and_index = 0;
+        rich4::GameSession ai_finish(finish_world, 0);
+        until(ai_finish, [&] { return ai_finish.completed_days() == 5; });
+        require(ai_finish.world().facilities[1].research_days() == 0 &&
+                    ai_finish.world().players[0].state.tool_amounts[10] == 1,
+                "AI must receive 傳送機 (tool 11) after 5 turns");
+
+        // 託管 human (controller_flags == 5) also takes the automatic research path (cmp [player+0x15], 1).
+        auto auto_world = make_world();
+        auto_world.players[0].state.controller_flags = 5;
+        auto_world.facilities[1].facility_type = 4;
+        auto_world.facilities[1].level = 2;
+        auto_world.players[0].state.cash = 0;
+        rich4::GameSession auto_game(auto_world, 0);
+        until(auto_game, [&] { return auto_game.world().header.current_player == 1; });
+        require(auto_game.world().facilities[1].research_tool == 2 &&
+                    auto_game.world().facilities[1].research_days() == 5,
+                "託管 human landing on level-2 Research Institute must auto-start 時光機 (2) for 5 turns");
+    }
+
+    // 6. 土地公 capturing an opponent's Research Institute immediately triggers Research Tool Picker!
+    {
+        auto value = make_world();
+        value.facilities[1].owner_code = 2;
+        value.facilities[1].facility_type = 4;
+        value.facilities[1].level = 2;
+        value.players[0].status.god_info = 12;
+        value.objects[11].kind = 12;
+        value.objects[11].attached_player = 1;
+        value.objects[11].remaining_days = 5;
+        rich4::GameSession capture(value, 0);
+        first_landing(capture);
+        require(capture.world().facilities[1].owner_code == 1 && capture.pending_decision() &&
+                    capture.pending_decision()->kind == rich4::DecisionKind::research_tool &&
+                    capture.pending_decision()->options.size() == 3,
+                "土地公 capturing opponent's level-2 Research Institute must open level-2 research picker");
+    }
+}
 int main() {
     try {
         landing_pauses();
@@ -1288,6 +1558,7 @@ int main() {
         monthly_settlement();
         save_reload_and_deferred_spawn();
         facilities_events_and_rescue();
+        research_institute();
         service_and_auction_choices();
         god_spinner_presentation_order();
         native_actions_and_money_spinner();
