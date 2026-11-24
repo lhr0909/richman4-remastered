@@ -323,6 +323,14 @@ std::optional<Item> from_event(const GameEvent &event, const World &world) {
                    1000);
     case Announcement::mini_game_points: // SG:4392: sprintf(0x463797 "得點券%d點"), fcn_00440cac(2000)
         return box("得點券" + std::to_string(event.amount) + "點", 2000);
+    case Announcement::research_complete: { // fcn_0041c84f: sprintf(0x463b68 "%s開發完成！"), fcn_00440cac(1500)
+        if (event.announcement_id < 1 || event.announcement_id > services::tool_names.size())
+            return std::nullopt;
+        auto item = box(std::string(services::tool_names[event.announcement_id - 1U]) + "開發完成！", 1500);
+        if (event.player < world.players.size())
+            item.focus = event.player;
+        return item;
+    }
     case Announcement::none:
         break;
     }

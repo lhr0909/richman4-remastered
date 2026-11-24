@@ -30,6 +30,7 @@ enum class DecisionKind {
     buy_facility,
     construct_facility,
     upgrade_facility,
+    research_tool, // 研究所 tool choice (fcn_0044101d): options 1..level (tools 9..13) plus cancel (-1)
     roulette,
     shop,
     magic_category,
@@ -153,6 +154,7 @@ enum class Announcement : std::uint8_t {
     stolen,            // "搶得%s的\n\n%s" box (0x4652f8, 1500 ms) after a computer's 搶奪卡 pick:
                        // subject = victim, id 0 card / 1 tool, value = card or tool id.
     mini_game_points,  // Closed-mode mini-game "得點券%d點" box (2000 ms, SG:4392): amount 50..69.
+    research_complete, // Research institute "%s開發完成！" box (1500 ms, fcn_0041c84f): id = tool 9..13.
 };
 
 // Which original per-character speech table a bubble line comes from (docs/ui/messages.md §1.4).

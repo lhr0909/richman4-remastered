@@ -95,7 +95,7 @@ struct GameSession::Impl {
     Random spinner_random{0};
     unsigned spinner_elapsed = 0;
     CardAiMemory card_ai_memory{};
-    bool property_pending = false, purchased_property = false;
+    bool property_pending = false, purchased_property = false, research_pending = false;
     bool property_landing = false; // presentation: the 8-tick hold after a property landing (pause)
     bool interactive_mini_games = false; // RICH4.CFG[1]; off = closed mode (replay harness)
     // AI settings (託管) requested mid-turn; applied at the next turn boundary (next_turn).
@@ -330,6 +330,45 @@ struct GameSession::Impl {
         phase = next;
         phase_elapsed = 0;
     }
+    // core_actions loc_0041b0b3 -> fcn_0044101d: after landing on an owned, built, unsealed
+    // Research Institute (type 4) while not sleepwalking, a human chooses tool 1..level for 5
+    // turns (right-click cancels); a computer/託管 player develops tool `level`.
+    bool open_research_institute() {
+        if (!player().controller_flags || status().days_sleep_walking)
+            return false;
+        const auto code = world.nodes.at(player().node_id).type_and_index;
+        if (code <= 4000 || code >= 6000)
+            return false;
+        const auto id = static_cast<std::size_t>(code - 4000);
+        if (!id || id >= world.facilities.size())
+            return false;
+        auto &entry = world.facilities[id];
+        if (entry.owner_code != actor() + 1 || entry.facility_type != 4 || !entry.level ||
+            (entry.temporary_state & 0x0fU))
+            return false;
+        const auto max_slot = std::min<unsigned>(entry.level, 5U);
+        if (!human()) {
+            entry.research_tool = static_cast<std::uint8_t>(max_slot);
+            entry.research_days() = 5;
+            emit(GameEventKind::notice,
+                 "研究所开始研发" + std::string(services::tool_names.at(max_slot + 7U)),
+                 static_cast<std::int32_t>(max_slot + 8U));
+            return false;
+        }
+        std::vector<DecisionOption> options;
+        options.reserve(max_slot + 1U);
+        for (unsigned slot = 1; slot <= max_slot; ++slot)
+            options.push_back({std::string(services::tool_names.at(slot + 7U)), static_cast<std::int32_t>(slot)});
+        options.push_back({"取消", -1});
+        decision = GameDecision{DecisionKind::research_tool,
+                                actor(),
+                                static_cast<std::uint16_t>(id),
+                                static_cast<std::int32_t>(max_slot),
+                                "請選擇欲開發道具",
+                                std::move(options)};
+        set_phase(GamePhase::awaiting_decision);
+        return true;
+    }
     void finish_turn() {
         if (phase == GamePhase::finished)
             return;
@@ -345,6 +384,11 @@ struct GameSession::Impl {
                 construction_vehicle_demolish();
             });
             return;
+        }
+        if (research_pending && phase != GamePhase::finished) {
+            research_pending = false;
+            if (open_research_institute())
+                return;
         }
         decision.reset();
         animation.reset();
@@ -509,9 +553,37 @@ struct GameSession::Impl {
             check_god(gods::after_property(world, actor(), player().node_id, god_callbacks()));
             construction_vehicle_demolish();
         }
+        tick_research_institutes();
+    }
+    // fcn_0041c84f (0x41cd8c..0x41ce38): tick down active Research Institutes owned by the
+    // current player at turn start; cancel if downgraded below research_tool; grant tool 9..13
+    // and announce "%s開發完成！" when research_days hits 0.
+    void tick_research_institutes() {
+        if (phase == GamePhase::finished || !player().controller_flags)
+            return;
+        const auto owner = static_cast<std::uint8_t>(actor() + 1);
+        for (std::size_t id = 1; id < world.facilities.size(); ++id) {
+            auto &entry = world.facilities[id];
+            if (entry.facility_type != 4 || !entry.research_days() || entry.owner_code != owner)
+                continue;
+            if (!entry.research_tool || entry.research_tool > 5 || entry.research_tool > entry.level) {
+                entry.research_days() = 0;
+                continue;
+            }
+            if (--entry.research_days() != 0)
+                continue;
+            const auto tool_id = static_cast<std::uint8_t>(entry.research_tool + 8U);
+            auto &box = announce(Announcement::research_complete, actor(), tool_id);
+            box.property = static_cast<std::uint16_t>(4000 + id);
+            (void)receive_tool(player().tool_amounts, world.tool_supply, tool_id);
+            emit(GameEventKind::notice,
+                 std::string(services::tool_names.at(tool_id - 1U)) + "開發完成！",
+                 static_cast<std::int32_t>(tool_id));
+        }
     }
     void start_turn(bool update = true) {
         property_landing = false;
+        research_pending = false;
         spawn_if_needed();
         decision.reset();
         animation.reset();
@@ -3307,6 +3379,7 @@ struct GameSession::Impl {
         if (kind == 0) {
             property_pending = true;
             purchased_property = false;
+            research_pending = node.type_and_index > 4000 && node.type_and_index < 6000;
             property_landing = node.type_and_index != 0; // core_actions loc_0041b111 (0x88)
             if (node.type_and_index > 2000 && node.type_and_index < 4000)
                 property(node.type_and_index - 2000);
@@ -4005,6 +4078,21 @@ bool GameSession::respond(std::size_t option, std::int32_t amount) {
         const auto multiplier = Impl::roulette_value(kind, impl_->roulette_cursor + 12);
         impl_->stopped_roulette_effect(decision, multiplier);
         impl_->charge_facility(decision.land_id, multiplier);
+    } else if (decision.kind == DecisionKind::research_tool) {
+        if (value >= 1 && value <= 5 && decision.land_id > 0 && decision.land_id < impl_->world.facilities.size()) {
+            auto &entry = impl_->world.facilities[decision.land_id];
+            const auto max_slot = std::min<int>(entry.level, 5);
+            if (value > max_slot) {
+                impl_->decision = decision;
+                return false;
+            }
+            entry.research_tool = static_cast<std::uint8_t>(value);
+            entry.research_days() = 5;
+            impl_->emit(GameEventKind::notice,
+                        "研究所开始研发" + std::string(services::tool_names.at(static_cast<std::size_t>(value + 7))),
+                        value + 8);
+        }
+        impl_->finish_turn();
     } else if (decision.kind == DecisionKind::buy_facility ||
                decision.kind == DecisionKind::construct_facility ||
                decision.kind == DecisionKind::upgrade_facility) {

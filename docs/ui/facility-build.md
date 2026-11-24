@@ -64,4 +64,24 @@ not this screen.
   - The core's `construct_facility` options are only 1..4, and value 0 means "give up" there. The park
     slot is therefore drawn dimmed and inert.
   - Allowing it needs a core change and a new test.
-- Review shots: `--overlay-gallery` writes `gallery-rules-facility-{type,type-selected,rebuild,rebuild-selected}.ppm`.
+- Review shots: `--overlay-gallery` writes `gallery-rules-facility-{type,type-selected,rebuild,rebuild-selected}.ppm` and `gallery-rules-research{,-selected,-locked}.ppm`.
+
+## 4. Research Institute tool picker (`fcn_0044101d`, `fcn_004402d7`)
+
+Triggered at `loc_0041b0b3` after landing on a facility tile (`4000 < code < 6000`) and running property-god effects (`0x40f381`) and flight bombardment (`0x448a7e`), whenever:
+- `facility.owner_code == current_player + 1`,
+- the player is not sleepwalking (`days_sleep_walking == 0`),
+- `facility.facility_type == 4` (研究所), `facility.level != 0`, and `(facility.temporary_state & 0x0f) == 0` (not sealed by 查封卡).
+
+- **Box.** `Data.mkf 517:5` transparent at (220,140); prompt `請選擇欲開發道具` (`0x465298`) mode 2 at (220,122). Selected/hovered tool name from `0x47ff22` at (220,154).
+- **Strip.** `Data.mkf 517:7` (400×89), opaque at (20,280). Five 66×54 slots at `(35+76i, 297)` displaying `Panel.mkf 11:(10+i)` centered at `(68+76i, 324)`:
+  1. Level 1: `機器工人` (tool 9)
+  2. Level 2: `時光機` (tool 10)
+  3. Level 3: `傳送機` (tool 11)
+  4. Level 4: `工程車` (tool 12)
+  5. Level 5: `核子飛彈` (tool 13)
+- **Locked slots** (`i >= facility.level`): greyscaled (`0x4553fe`); hovering/tapping previews the tool name, clicking cannot commit.
+- **Hover / selection:** two nested `0xffff00` outlines (`71×59` at `(32+76i, 294)` and `69×57` at `+1`), Effect 0.
+- **Commit / cancel:** clicking an unlocked slot plays Effect 1 and writes `facility[+0x1d] = slot + 1` (`research_tool`) and `facility[+0x1e] = 5` (`research_days`). Right-click / Escape / `取消` plays Effect 4 and leaves existing research unchanged. Computers and 託管 players skip the UI and set `research_tool = level`, `research_days = 5`.
+- **Turn-start tick (`fcn_0041c84f`, `0x41cd8c..0x41ce38`):** on the owner's turn start, each owned Research Institute with `research_days > 0` clears `research_days = 0` if `research_tool > level`, otherwise decrements `research_days`; on reaching 0 it displays `"%s開發完成！"` (`0x463b68`, 1500 ms) and grants tool `research_tool + 8` via `receive_tool` (capped at 9, independent of shared `tool_supply`).
+- **Tile popup (`fcn_00417559`, `0x417ac2..0x417adf`):** shows the developing tool's name on line 4 (`dy = 54`) whenever `research_days != 0`.
