@@ -21,6 +21,7 @@ scripts download the components below into gitignored directories (`android/thir
 | [FreeType](https://freetype.org) | 2.14.x (2.14.3 on Android/iOS) | all | FreeType License (FTL), used under the FTL option |
 | [FluidSynth](https://www.fluidsynth.org) | 2.6.x (2.6.1 on Android/iOS; no glib, no audio backends) | all | LGPL-2.1-or-later |
 | [gcem](https://github.com/kthohr/gcem) @ `012ae73` | FluidSynth build dependency | Android, iOS | Apache-2.0 |
+| [libogg](https://xiph.org/ogg/) / [libvorbis](https://xiph.org/vorbis/) (vorbisfile) | 1.3.6 / 1.3.7 on iOS; Homebrew on macOS (optional) | macOS, iOS | BSD-3-Clause |
 | [GNU libiconv](https://www.gnu.org/software/libiconv/) | 1.18 | Android (statically linked; Android's own iconv has no Big5) | LGPL-2.1-or-later |
 | System iconv | — | macOS, iOS | part of the OS |
 

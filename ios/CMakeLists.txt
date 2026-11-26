@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 get_filename_component(RICH4_REPO "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
-if(NOT EXISTS "${THIRD_PARTY}/SDL3-3.4.16/CMakeLists.txt")
+if(NOT EXISTS "${THIRD_PARTY}/SDL3-3.4.16/CMakeLists.txt" OR NOT EXISTS "${THIRD_PARTY}/libvorbis-1.3.7/lib")
   message(FATAL_ERROR "Third-party sources missing; run scripts/build_ios.sh first")
 endif()
 set(RICH4_GAME_ASSETS "${RICH4_REPO}/game-assets" CACHE PATH "Original game files copied into the app")
@@ -61,6 +61,22 @@ add_subdirectory("${THIRD_PARTY}/fluidsynth-2.6.1" fluidsynth EXCLUDE_FROM_ALL)
 file(WRITE "${CMAKE_BINARY_DIR}/fluidsynth_xcode_source.c" "/* lets Xcode archive libfluidsynth */\n")
 target_sources(libfluidsynth PRIVATE "${CMAKE_BINARY_DIR}/fluidsynth_xcode_source.c")
 
+# Ogg Vorbis for the Steam release's music (tools/native_audio.cpp, RICH4_HAVE_VORBIS). libogg's
+# own CMake generates its config_types.h. libvorbis's CMake requires CMake < 4 and an installed
+# Ogg, so vorbisfile is built here from its upstream source list (lib/CMakeLists.txt).
+set(INSTALL_DOCS OFF CACHE BOOL "" FORCE)
+set(INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+set(INSTALL_CMAKE_PACKAGE_MODULE OFF CACHE BOOL "" FORCE)
+add_subdirectory("${THIRD_PARTY}/libogg-1.3.6" ogg EXCLUDE_FROM_ALL)
+set(vorbis_sources mdct smallft block envelope window lsp lpc analysis synthesis psy info floor1 floor0
+  res0 mapping0 registry codebook sharedbook lookup bitrate vorbisfile)
+list(TRANSFORM vorbis_sources PREPEND "${THIRD_PARTY}/libvorbis-1.3.7/lib/")
+list(TRANSFORM vorbis_sources APPEND ".c")
+add_library(vorbisfile STATIC ${vorbis_sources})
+target_include_directories(vorbisfile PUBLIC "${THIRD_PARTY}/libvorbis-1.3.7/include"
+  PRIVATE "${THIRD_PARTY}/libvorbis-1.3.7/lib")
+target_link_libraries(vorbisfile PUBLIC Ogg::ogg)
+
 # Portable game core from the repository root (tests and desktop tools excluded).
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(RICH4_BUILD_VIEWER OFF CACHE BOOL "" FORCE)
@@ -96,8 +112,9 @@ endif()
 
 add_executable(rich4 MACOSX_BUNDLE ${sources})
 target_include_directories(rich4 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${RICH4_REPO}/tools")
-target_link_libraries(rich4 PRIVATE rich4_core SDL3::SDL3-static freetype libfluidsynth iconv
+target_link_libraries(rich4 PRIVATE rich4_core SDL3::SDL3-static freetype libfluidsynth vorbisfile iconv
   "-framework UIKit")
+target_compile_definitions(rich4 PRIVATE RICH4_HAVE_VORBIS)
 set_source_files_properties(rich4_ios.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 set_target_properties(rich4 PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"

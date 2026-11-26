@@ -83,13 +83,13 @@ non-blank). Including tests, tooling and the mobile shells the new code is ~51.6
    - 必需：所有 `*.mkf`（`Data`、`Panel`、`map`、`Effect`、`Speaking`、`jump`、`help`）、`*.mid` 音乐、`*.wav`；
    - 建议：`rich4.exe`（只在建置时读取它的图标作为 App 图标；不会被执行，也不会打包）。
    - `*.avi` 过场不需要。
-3. 本项目以原版 v3.11 光盘版的文件验证（`scripts/audit_assets.py` 可检查）。Steam 版的文件尚未逐一比对；
-   若有不同，请回报。
+3. 本项目以原版 v3.11 光盘版的文件验证（`scripts/audit_assets.py` 可检查）。
+4. Steam 版：从安装文件夹的 `MultiverseJourney/` 复制 `*.mkf`，不要用 `Game/`（`Game/` 的素材布局与 v3.11 不同）。Steam 版没有 `*.mid`，改为把 `Media/Music/track02.ogg`…`track26.ogg` 放进 `game-assets/` 作为背景音乐（Mac 与 iOS 支持，Android 暂不支持）。详见 [`game-assets/README.md`](game-assets/README.md#steam-版--steam-release)。
 
 ## 在 Mac 上玩
 
 ```sh
-brew install cmake sdl3 freetype fluid-synth
+brew install cmake pkgconf sdl3 freetype fluid-synth
 ```
 
 双击 **`Play Rich4 Native.command`**（或执行 `./scripts/run_native_mac.sh`）。存档在
@@ -129,7 +129,7 @@ iPhone 需已“信任此电脑”并开启“开发者模式”（设置 › �
 ## 编译原生核心与 Mac 查看器
 
 ```sh
-brew install cmake sdl3 freetype fluid-synth
+brew install cmake pkgconf sdl3 freetype fluid-synth
 cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Debug -DRICH4_SANITIZERS=ON
 cmake --build build/native --parallel
 ctest --test-dir build/native --output-on-failure
@@ -208,7 +208,7 @@ python3 scripts/test_android_core.py --serial emulator-5554 \
 
 ## iOS（iPhone / iPad，仅本机安装）
 
-`ios/` 是 CMake（Xcode 生成器，`CMAKE_SYSTEM_NAME=iOS`）工程，直接编译仓库根目录的源码，加上 SDL3 3.4.16、FreeType、FluidSynth（无 glib、无后端）；Big5 用 iOS 系统 libiconv。第三方源码由脚本下载到 `ios/third_party/`（gitignored，SHA-256 校验，版本同 Android）。`game-assets/` 的 mkf/mid/wav、GeneralUser GS 音色库与 Noto Serif CJK TC 字体在编译时复制进 app 包（不进 Git），游戏直接从包内读取；存档在 app 的 `Library/Application Support/divby0/rich4/saves`，切到后台写入 `Autosave.DAT`。图标由 `scripts/make_ios_icon.py` 从 rich4.exe 生成。Bundle id `io.divby0.rich4`，仅横屏、全屏、隐藏状态栏。**不要上传 App Store / TestFlight。**
+`ios/` 是 CMake（Xcode 生成器，`CMAKE_SYSTEM_NAME=iOS`）工程，直接编译仓库根目录的源码，加上 SDL3 3.4.16、FreeType、FluidSynth（无 glib、无后端），以及播放 Steam 版 Ogg 音乐的 libogg 1.3.6 / libvorbis 1.3.7；Big5 用 iOS 系统 libiconv。第三方源码由脚本下载到 `ios/third_party/`（gitignored，SHA-256 校验，除 Ogg 外版本同 Android）。`game-assets/` 的 mkf/mid/wav/ogg、GeneralUser GS 音色库与 Noto Serif CJK TC 字体在编译时复制进 app 包（不进 Git），游戏直接从包内读取；存档在 app 的 `Library/Application Support/divby0/rich4/saves`，切到后台写入 `Autosave.DAT`。图标由 `scripts/make_ios_icon.py` 从 rich4.exe 生成。Bundle id `io.divby0.rich4`，仅横屏、全屏、隐藏状态栏。**不要上传 App Store / TestFlight。**
 
 ```sh
 scripts/build_ios.sh                                   # 模拟器版（ad-hoc 签名）
