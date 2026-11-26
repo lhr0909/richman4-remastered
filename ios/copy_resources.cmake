@@ -17,7 +17,8 @@ foreach(file IN LISTS files)
   get_filename_component(name "${file}" NAME)
   get_filename_component(extension "${file}" LAST_EXT)
   string(TOLOWER "${extension}" extension)
-  if(extension MATCHES "^\\.(mkf|mid|wav)$") # as Android; movies (.avi) and the EXEs are not needed
+  # As Android, plus the Steam release's Ogg music; movies (.avi) and the EXEs are not needed.
+  if(extension MATCHES "^\\.(mkf|mid|wav|ogg)$")
     file(COPY_FILE "${file}" "${BUNDLE}/game/${name}" ONLY_IF_DIFFERENT)
     if(name STREQUAL "Data.mkf")
       set(found_data ON)

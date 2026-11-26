@@ -249,7 +249,7 @@ class OggTrack {
     std::array<float, block_frames * channels> scratch_{};
 };
 #else
-// Built without libvorbisfile (phone builds): Ogg music is never discovered.
+// Built without libvorbisfile (Android): Ogg music is never discovered.
 class OggTrack {
   public:
     std::string open(const std::filesystem::path &, std::int64_t) {

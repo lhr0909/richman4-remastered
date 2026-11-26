@@ -48,11 +48,11 @@ Verified with the original v3.11 CD release. Please report any differences.
 
 Steam 版的安裝資料夾裡有兩套遊戲檔案。請從 `MultiverseJourney/` 複製 `*.mkf` 和 `rich4.exe`，不要用 `Game/`。`MultiverseJourney/Data.mkf` 有 602 個條目，與 v3.11 相同；`Game/Data.mkf` 只有 561 個，例如主選單少了「新關卡」按鈕，本專案讀到它會在主選單出錯。
 
-Steam 版沒有 `*.mid`，背景音樂是 `Media/Music/track02.ogg`…`track26.ogg`。把這 25 個檔案也直接放進 `game-assets/`。它們依 `Midi.txt` 的順序對應原版 MIDI：`track02`…`track09` 是 `Rich08`、`Rich16`…`Rich22`，`track10`…`track26` 是 `midi01`…`midi16`（含 `midi14-1`、`midi14-2`）。目前只有 Mac 建置會播放 Ogg（需要 Homebrew 的 libvorbis，安裝 fluid-synth 時會一併裝好）；Android / iOS 建置沒有背景音樂。
+Steam 版沒有 `*.mid`，背景音樂是 `Media/Music/track02.ogg`…`track26.ogg`。把這 25 個檔案也直接放進 `game-assets/`。它們依 `Midi.txt` 的順序對應原版 MIDI：`track02`…`track09` 是 `Rich08`、`Rich16`…`Rich22`，`track10`…`track26` 是 `midi01`…`midi16`（含 `midi14-1`、`midi14-2`）。Mac 與 iOS 建置會播放 Ogg（Mac 需要 Homebrew 的 libvorbis，安裝 fluid-synth 時會一併裝好；iOS 由 `scripts/build_ios.sh` 下載）；Android 建置目前沒有背景音樂。
 
 The Steam install folder holds two sets of game files. Copy the `*.mkf` files and `rich4.exe` from `MultiverseJourney/`, not `Game/`. `MultiverseJourney/Data.mkf` has 602 entries like v3.11; `Game/Data.mkf` has only 561 (for example, the main menu lacks the 新關卡 button), and this port fails on its main menu.
 
-The Steam release has no `*.mid`; its music is `Media/Music/track02.ogg` … `track26.ogg`. Put those 25 files directly into `game-assets/` too. They follow the order of `Midi.txt`: `track02`…`track09` are `Rich08`, `Rich16`…`Rich22`, and `track10`…`track26` are `midi01`…`midi16` (including `midi14-1` and `midi14-2`). Only the Mac build plays Ogg for now (it needs Homebrew's libvorbis, which installing fluid-synth pulls in); Android / iOS builds have no music.
+The Steam release has no `*.mid`; its music is `Media/Music/track02.ogg` … `track26.ogg`. Put those 25 files directly into `game-assets/` too. They follow the order of `Midi.txt`: `track02`…`track09` are `Rich08`, `Rich16`…`Rich22`, and `track10`…`track26` are `midi01`…`midi16` (including `midi14-1` and `midi14-2`). The Mac and iOS builds play Ogg (the Mac needs Homebrew's libvorbis, which installing fluid-synth pulls in; `scripts/build_ios.sh` downloads it for iOS); Android builds have no music for now.
 
 ## 接著建置 / Then build
 

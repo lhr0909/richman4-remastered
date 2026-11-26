@@ -65,6 +65,11 @@ fetch https://github.com/FluidSynth/fluidsynth/archive/refs/tags/v2.6.1.tar.gz \
     fluidsynth-2.6.1.tar.gz 3d258a3bf97cc20c59eeebfe62c2432fae88adda74d3ad098681c76e0ebf446b
 fetch https://github.com/kthohr/gcem/archive/012ae73c6d0a2cb09ffe86475f5c6fba3926e200.tar.gz \
     gcem-012ae73.tar.gz 34ab0ee87a9eb26d3087fa9b49c2572ea8ee03db0c9705b83648301a3a3fc172
+# Ogg Vorbis decoder for the Steam release's music, which ships Ogg tracks instead of MIDIs.
+fetch https://github.com/xiph/ogg/releases/download/v1.3.6/libogg-1.3.6.tar.xz \
+    libogg-1.3.6.tar.xz 5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061
+fetch https://github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.xz \
+    libvorbis-1.3.7.tar.xz b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b
 # General MIDI bank for FluidSynth (iOS has no system DLS bank).
 fetch https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/main/GeneralUser-GS.sf2 \
     GeneralUser-GS.sf2 9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe
@@ -76,6 +81,8 @@ fetch https://raw.githubusercontent.com/notofonts/noto-cjk/main/Serif/OTF/Tradit
 unpack SDL3-3.4.16.tar.gz SDL3-3.4.16
 unpack freetype-2.14.3.tar.xz freetype-2.14.3
 unpack fluidsynth-2.6.1.tar.gz fluidsynth-2.6.1
+unpack libogg-1.3.6.tar.xz libogg-1.3.6
+unpack libvorbis-1.3.7.tar.xz libvorbis-1.3.7
 mkdir -p "$THIRD_PARTY/fluidsynth-2.6.1/gcem"
 if [[ ! -f "$THIRD_PARTY/fluidsynth-2.6.1/gcem/include/gcem.hpp" ]]; then
     tar -xf "$THIRD_PARTY/downloads/gcem-012ae73.tar.gz" -C "$THIRD_PARTY/fluidsynth-2.6.1/gcem" --strip-components 1
