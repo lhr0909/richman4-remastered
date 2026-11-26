@@ -9,6 +9,9 @@
 
 #include <SDL3/SDL.h>
 #include <fluidsynth.h>
+#ifdef RICH4_HAVE_VORBIS
+#include <vorbis/vorbisfile.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -22,6 +25,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -44,6 +48,9 @@ constexpr int bytes_per_frame = channels * int(sizeof(float));
 // keep music within ~1 dB of its old balance against effects and voices.
 constexpr float clip_gain = 0.6F;   // effects and voices (-4.4 dB)
 constexpr double music_gain = 0.28; // FluidSynth synth.gain (was 0.4)
+// The Steam Ogg tracks are mastered near 0 dBFS (RMS about -16 dBFS); -12 dB puts them close to
+// the MIDI render's level against effects and voices.
+constexpr float ogg_gain = 0.25F;
 constexpr SDL_AudioSpec mixer_format{SDL_AUDIO_F32, channels, sample_rate};
 constexpr std::array<std::string_view, 8> music_files{"rich08.mid", "rich16.mid", "rich17.mid", "rich18.mid",
                                                       "rich19.mid", "rich20.mid", "rich21.mid", "rich22.mid"};
@@ -53,6 +60,30 @@ constexpr std::array<std::string_view, 18> context_files{
     "midi06.mid", "midi07.mid", "midi08.mid", "midi09.mid",   "midi10.mid",   "midi11.mid",
     "midi12.mid", "midi13.mid", "midi14-1.mid", "midi14-2.mid", "midi15.mid", "midi16.mid"};
 constexpr std::array<std::string_view, std::size_t(Loop::count)> loop_names{"spinner", "walk", "bomb"};
+
+// The Steam release replaces the MIDIs with CD-audio tracks. Its Midi.txt lists the 25 MIDIs in
+// track order (track 1 is the data track): the playlist, then the context MIDIs, so rich08.mid is
+// track02.ogg and midi16.mid is track26.ogg.
+std::string ogg_name(std::string_view midi) {
+    int track = 2;
+    for (const auto file : music_files) {
+        if (file == midi)
+            break;
+        ++track;
+    }
+    if (track == 2 + int(music_files.size())) {
+        for (const auto file : context_files) {
+            if (file == "silence")
+                continue;
+            if (file == midi)
+                break;
+            ++track;
+        }
+    }
+    char name[16];
+    std::snprintf(name, sizeof(name), "track%02d.ogg", track);
+    return name;
+}
 
 std::filesystem::path asset_path(const std::filesystem::path &directory, std::string_view name) {
     for (const auto &entry : std::filesystem::directory_iterator(directory)) {
@@ -134,6 +165,109 @@ std::vector<float> decode_wave(std::span<const std::uint8_t> bytes) {
     return result;
 }
 
+#ifdef RICH4_HAVE_VORBIS
+// Streams one Ogg Vorbis file, resampled to the mixer format. Caller holds the audio mutex.
+class OggTrack {
+  public:
+    OggTrack() = default;
+    OggTrack(const OggTrack &) = delete;
+    OggTrack &operator=(const OggTrack &) = delete;
+    ~OggTrack() {
+        close();
+    }
+
+    // Opens `path` at PCM frame `frame`; returns an error message instead of throwing because the
+    // audio thread calls it when the playlist advances.
+    std::string open(const std::filesystem::path &path, std::int64_t frame) {
+        close();
+        if (ov_fopen(path.string().c_str(), &file_) != 0)
+            return "cannot open Ogg music " + path.string();
+        open_ = true;
+        const auto *info = ov_info(&file_, -1);
+        const SDL_AudioSpec source{SDL_AUDIO_F32, info->channels, int(info->rate)};
+        resampler_.reset(SDL_CreateAudioStream(&source, &mixer_format));
+        if (!resampler_) {
+            close();
+            return std::string("create Ogg resampler: ") + SDL_GetError();
+        }
+        channels_ = info->channels;
+        interleaved_.resize(std::size_t(read_frames) * std::size_t(channels_));
+        if (frame > 0)
+            ov_pcm_seek(&file_, frame);
+        return {};
+    }
+    void close() {
+        resampler_.reset();
+        if (open_)
+            ov_clear(&file_);
+        open_ = false;
+        ended_ = false;
+    }
+    bool is_open() const {
+        return open_;
+    }
+    std::int64_t position() {
+        return open_ ? ov_pcm_tell(&file_) : 0;
+    }
+    // Adds up to output.size() samples times `gain` to `output`. Returns false once the file has
+    // ended and every resampled sample was played; `loop` restarts it instead.
+    bool mix(std::span<float> output, float gain, bool loop) {
+        const int wanted = int(output.size() * sizeof(float));
+        while (!ended_ && SDL_GetAudioStreamAvailable(resampler_.get()) < wanted) {
+            float **pcm = nullptr;
+            int section = 0;
+            const long frames = ov_read_float(&file_, &pcm, read_frames, &section);
+            if (frames == OV_HOLE)
+                continue; // recoverable gap in the stream
+            if (frames <= 0) {
+                if (frames == 0 && loop && ov_pcm_seek(&file_, 0) == 0)
+                    continue;
+                ended_ = true;
+                SDL_FlushAudioStream(resampler_.get());
+                break;
+            }
+            for (long i = 0; i < frames; ++i)
+                for (int c = 0; c < channels_; ++c)
+                    interleaved_[std::size_t(i * channels_ + c)] = pcm[c][i];
+            SDL_PutAudioStreamData(resampler_.get(), interleaved_.data(), int(frames * channels_ * sizeof(float)));
+        }
+        const int got = SDL_GetAudioStreamData(resampler_.get(), scratch_.data(),
+                                               std::min(wanted, int(scratch_.size() * sizeof(float))));
+        for (int i = 0; i < got / int(sizeof(float)); ++i)
+            output[std::size_t(i)] += scratch_[std::size_t(i)] * gain;
+        return !ended_ || SDL_GetAudioStreamAvailable(resampler_.get()) > 0;
+    }
+
+  private:
+    static constexpr int read_frames = 1024;
+    OggVorbis_File file_{};
+    bool open_{};
+    bool ended_{};
+    int channels_{};
+    std::unique_ptr<SDL_AudioStream, decltype(&SDL_DestroyAudioStream)> resampler_{nullptr, SDL_DestroyAudioStream};
+    std::vector<float> interleaved_;
+    std::array<float, block_frames * channels> scratch_{};
+};
+#else
+// Built without libvorbisfile (phone builds): Ogg music is never discovered.
+class OggTrack {
+  public:
+    std::string open(const std::filesystem::path &, std::int64_t) {
+        return "built without Ogg Vorbis support";
+    }
+    void close() {}
+    bool is_open() const {
+        return false;
+    }
+    std::int64_t position() {
+        return 0;
+    }
+    bool mix(std::span<float>, float, bool) {
+        return false;
+    }
+};
+#endif
+
 } // namespace
 
 std::string_view music_file(Music music) noexcept {
@@ -147,7 +281,8 @@ std::string_view music_file(Music music) noexcept {
 //    canvas) can no longer starve the device.
 //  * Everything slow -- archive IO, WAV decode, MIDI file reads, soundbank loading -- happens on
 //    the main thread (or the startup archive loader) *outside* `mutex`; the main thread then
-//    takes `mutex` only to swap pointers / small structs.
+//    takes `mutex` only to swap pointers / small structs. The exception is Ogg music (Steam
+//    release): it is streamed from disk on the audio thread, in small reads.
 //  * Fields marked [shared] are guarded by `mutex`. Fields marked [main] are only touched by the
 //    main thread. [const] fields are fixed after construction.
 //  * The audio thread never throws and never calls the trace; its log lines are queued and
@@ -157,6 +292,7 @@ struct Audio::Impl {
     bool enabled{};
     std::filesystem::path directory;
     std::map<std::string, std::vector<std::uint8_t>, std::less<>> midi_cache; // every original MIDI, read at startup
+    std::map<std::string, std::filesystem::path, std::less<>> ogg_paths; // Steam Ogg tracks, keyed by MIDI name
     // [main]
     Trace trace;
     std::array<std::optional<std::size_t>, std::size_t(Loop::count)> loops{};
@@ -188,6 +324,7 @@ struct Audio::Impl {
                                                                                  delete_fluid_settings};
     std::unique_ptr<fluid_synth_t, decltype(&delete_fluid_synth)> synth{nullptr, delete_fluid_synth};
     std::unique_ptr<fluid_player_t, decltype(&delete_fluid_player)> player{nullptr, delete_fluid_player};
+    OggTrack ogg; // used instead of `player` when the music is Ogg (then `synth` stays null)
     struct Clip {
         const std::vector<float> *samples;
         std::size_t position{};
@@ -256,6 +393,7 @@ struct Audio::Impl {
         if (archive_loader.valid())
             archive_loader.wait();
         player.reset();
+        ogg.close();
         synth.reset();
         settings.reset();
     }
@@ -271,7 +409,42 @@ struct Audio::Impl {
         return true;
     }
 
+    // The Steam release has no MIDIs, only track02.ogg ... track26.ogg. Use those when no playlist
+    // MIDI exists. Returns whether Ogg music was set up.
+    bool initialize_ogg_music() {
+#ifndef RICH4_HAVE_VORBIS
+        return false;
+#else
+        const auto exists = [this](std::string_view name) {
+            try {
+                asset_path(directory, name);
+                return true;
+            } catch (const assets::AssetError &) {
+                return false;
+            }
+        };
+        if (std::any_of(music_files.begin(), music_files.end(), exists))
+            return false;
+        const auto add = [&](std::string_view midi) {
+            const auto name = ogg_name(midi);
+            if (exists(name))
+                ogg_paths.emplace(midi, asset_path(directory, name));
+        };
+        std::for_each(music_files.begin(), music_files.end(), add);
+        std::for_each(context_files.begin() + 1, context_files.end(), add); // skip "silence"
+        if (ogg_paths.empty())
+            return false;
+        if (ogg_paths.size() < music_files.size() + context_files.size() - 1)
+            diagnostic = "some Ogg music tracks are missing; those screens stay silent";
+        if (const auto error = start_track_locked(); !error.empty()) // no device yet: no lock needed
+            throw std::runtime_error(error);
+        return true;
+#endif
+    }
+
     void initialize_music(std::filesystem::path bank) {
+        if (initialize_ogg_music())
+            return;
         if (bank.empty()) {
             if (const auto *environment = std::getenv("RICH4_SOUNDFONT")) {
                 bank = environment;
@@ -288,10 +461,15 @@ struct Audio::Impl {
             return;
         }
         // All MIDIs are tiny (~0.5 MB together): read them now so neither a context push nor the
-        // playlist advancing on the audio thread ever touches the file system. The playlist files
-        // stay mandatory; a missing context MIDI only keeps that screen silent.
-        for (const auto file : music_files)
-            midi_cache.emplace(file, read_bytes(asset_path(directory, file)));
+        // playlist advancing on the audio thread ever touches the file system. A missing MIDI only
+        // keeps that music silent (the Steam release ships Ogg tracks instead of MIDIs).
+        for (const auto file : music_files) {
+            try {
+                midi_cache.emplace(file, read_bytes(asset_path(directory, file)));
+            } catch (const std::exception &error) {
+                diagnostic = error.what();
+            }
+        }
         for (const auto file : context_files) {
             if (file == "silence")
                 continue;
@@ -339,11 +517,13 @@ struct Audio::Impl {
     // MIDI bytes were read at startup. Returns an error message instead of throwing because the
     // audio thread calls it when the playlist advances. Caller holds `mutex`.
     std::string start_track_locked(int tick = 0) {
-        if (!synth) {
+        if (!synth && ogg_paths.empty()) {
             return {};
         }
         player.reset();
-        fluid_synth_system_reset(synth.get());
+        ogg.close();
+        if (synth)
+            fluid_synth_system_reset(synth.get());
         if (!music_on) {
             player_stale = true;
             resume_tick = tick;
@@ -354,6 +534,10 @@ struct Audio::Impl {
             return {}; // no player: silence until popped
         }
         const auto file = current_file_locked();
+        if (!ogg_paths.empty()) { // `tick` is a PCM frame for Ogg music
+            const auto found = ogg_paths.find(file);
+            return found == ogg_paths.end() ? std::string() : ogg.open(found->second, tick);
+        }
         const auto cached = midi_cache.find(file);
         if (cached == midi_cache.end()) {
             return {}; // missing context MIDI (reported at startup): silent, game keeps running
@@ -388,6 +572,8 @@ struct Audio::Impl {
     int current_tick_locked() {
         if (player_stale)
             return resume_tick;
+        if (ogg.is_open())
+            return int(ogg.position());
         return player ? std::max(0, fluid_player_get_current_tick(player.get())) : 0;
     }
     void push(Music music, bool save) {
@@ -504,15 +690,24 @@ struct Audio::Impl {
         }
     }
 
+    void next_track_locked() {
+        track = track % 8 + 1;
+        pending_log.emplace_back("music_next", current_file_locked());
+        if (auto error = start_track_locked(); !error.empty())
+            render_error = std::move(error);
+    }
+
     void render_block_locked(std::span<float> output) noexcept {
         std::fill(output.begin(), output.end(), 0.0F);
+        if (music_on && ogg.is_open()) {
+            // Context music loops until popped; a finished playlist track advances.
+            if (!ogg.mix(output, ogg_gain, context.has_value()) && !context)
+                next_track_locked();
+            stats.music_frames += block_frames;
+        }
         if (music_on && player) {
-            if (fluid_player_get_status(player.get()) == FLUID_PLAYER_DONE && !context) {
-                track = track % 8 + 1;
-                pending_log.emplace_back("music_next", current_file_locked());
-                if (auto error = start_track_locked(); !error.empty())
-                    render_error = std::move(error);
-            }
+            if (fluid_player_get_status(player.get()) == FLUID_PLAYER_DONE && !context)
+                next_track_locked();
             if (player && fluid_synth_write_float(synth.get(), block_frames, output.data(), 0, 2, output.data(), 1,
                                                   2) != FLUID_OK) {
                 render_error = "MIDI software rendering failed";
@@ -770,7 +965,7 @@ bool Audio::enabled() const noexcept {
     return impl_->enabled;
 }
 bool Audio::music_available() const noexcept {
-    return impl_->synth != nullptr; // set once at construction
+    return impl_->synth != nullptr || !impl_->ogg_paths.empty(); // set once at construction
 }
 bool Audio::music_enabled() const noexcept {
     return impl_->music_on; // written only by the main thread

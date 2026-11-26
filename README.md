@@ -89,7 +89,7 @@ non-blank). Including tests, tooling and the mobile shells the new code is ~51.6
 ## 在 Mac 上玩
 
 ```sh
-brew install cmake sdl3 freetype fluid-synth
+brew install cmake pkgconf sdl3 freetype fluid-synth
 ```
 
 双击 **`Play Rich4 Native.command`**（或执行 `./scripts/run_native_mac.sh`）。存档在
@@ -129,7 +129,7 @@ iPhone 需已“信任此电脑”并开启“开发者模式”（设置 › �
 ## 编译原生核心与 Mac 查看器
 
 ```sh
-brew install cmake sdl3 freetype fluid-synth
+brew install cmake pkgconf sdl3 freetype fluid-synth
 cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Debug -DRICH4_SANITIZERS=ON
 cmake --build build/native --parallel
 ctest --test-dir build/native --output-on-failure

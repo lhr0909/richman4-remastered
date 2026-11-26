@@ -211,7 +211,8 @@ Options arguments(int argc, char **argv) {
             fs::path("/Applications/Microsoft Word.app/Contents/Resources/DFonts/mingliu.ttc"),
             home / "Library/Containers/org.boxedwine/Data/Library/Application "
                    "Support/Boxedwine/Rich4/root/home/username/.wine/drive_c/windows/Fonts/mingliu.ttc",
-            fs::path("/System/Library/Fonts/PingFang.ttc")};
+            fs::path("/System/Library/Fonts/PingFang.ttc"),
+            fs::path("/System/Library/Fonts/STHeiti Medium.ttc")};
         for (const auto &path : candidates)
             if (fs::is_regular_file(path)) {
                 options.font = path;

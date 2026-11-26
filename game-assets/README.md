@@ -18,6 +18,7 @@ local files) directly into `game-assets/`, not into a subfolder. File name case 
 | --- | --- | --- |
 | `Data.mkf`、`Panel.mkf`、`map.mkf`、`Effect.mkf`、`Speaking.mkf`、`jump.mkf`、`help.mkf` | **必要 / required** | 圖片、動畫、地圖、音效、語音、說明 / graphics, movies, maps, sound effects, voices, help |
 | `*.mid`（`midi01.mid`…、`Rich08.mid`…`Rich22.mid`） | **必要 / required** | 背景音樂 / music |
+| `track02.ogg`…`track26.ogg`（Steam 版 `Media/Music/`） | Steam 版代替 `*.mid` / Steam release instead of `*.mid` | Steam 版沒有 MIDI，背景音樂改用這些 Ogg；只有 Mac 建置支援 / the Steam release has no MIDIs; its Ogg tracks are used instead (Mac build only) |
 | `*.wav` | 建議 / recommended | 安裝程式音效（目前未使用）/ installer sounds (not used yet) |
 | `rich4.exe` | 建議 / recommended | 只在建置 Android / iOS 時讀取它的圖示做 App 圖示；不會執行、不會打包 / read at build time for the app icon only; never run or packaged |
 | `*.avi` | 不需要 / not needed | 原版過場（本專案未使用）/ cutscenes (not used) |
