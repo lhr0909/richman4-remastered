@@ -83,8 +83,8 @@ non-blank). Including tests, tooling and the mobile shells the new code is ~51.6
    - 必需：所有 `*.mkf`（`Data`、`Panel`、`map`、`Effect`、`Speaking`、`jump`、`help`）、`*.mid` 音乐、`*.wav`；
    - 建议：`rich4.exe`（只在建置时读取它的图标作为 App 图标；不会被执行，也不会打包）。
    - `*.avi` 过场不需要。
-3. 本项目以原版 v3.11 光盘版的文件验证（`scripts/audit_assets.py` 可检查）。Steam 版的文件尚未逐一比对；
-   若有不同，请回报。
+3. 本项目以原版 v3.11 光盘版的文件验证（`scripts/audit_assets.py` 可检查）。
+4. Steam 版：从安装文件夹的 `MultiverseJourney/` 复制 `*.mkf`，不要用 `Game/`（`Game/` 的素材布局与 v3.11 不同）。Steam 版没有 `*.mid`，改为把 `Media/Music/track02.ogg`…`track26.ogg` 放进 `game-assets/` 作为背景音乐（目前只有 Mac 支持）。详见 [`game-assets/README.md`](game-assets/README.md#steam-版--steam-release)。
 
 ## 在 Mac 上玩
 
